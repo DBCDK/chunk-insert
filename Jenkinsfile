@@ -17,6 +17,7 @@ pipeline {
     options {
         buildDiscarder(logRotator(artifactDaysToKeepStr: "", artifactNumToKeepStr: "", daysToKeepStr: "30", numToKeepStr: "30"))
         timestamps()
+        skipStagesAfterUnstable()
     }
     stages {
         stage("build") {
@@ -70,7 +71,7 @@ pipeline {
             steps {
                 script {
                     if (env.BRANCH_NAME ==~ /master|trunk/) {
-                        archive 'target/chunk-insert.jar'
+                        archiveArtifact artifacts: 'target/chunk-insert.jar', fingerprint: true
                     }
                 }
             }
