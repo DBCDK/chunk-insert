@@ -66,15 +66,11 @@ pipeline {
                 }
             }
         }
+    }
 
-        stage("archive") {
-            steps {
-                script {
-                    if (env.BRANCH_NAME ==~ /master|trunk/) {
-                        archiveArtifact artifacts: 'target/chunk-insert.jar', fingerprint: true
-                    }
-                }
-            }
+    post {
+        always {
+            archiveArtifacts artifacts: 'build/libs/**/*.jar', fingerprint: true
         }
     }
 }
