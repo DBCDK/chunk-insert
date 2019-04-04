@@ -15,7 +15,7 @@ pipeline {
         pollSCM("H/3 * * * *")
     }
     options {
-        buildDiscarder(logRotator(artifactDaysToKeepStr: "", artifactNumToKeepStr: "", daysToKeepStr: "30", numToKeepStr: "30"))
+        buildDiscarder(logRotator(artifactDaysToKeepStr: "365", artifactNumToKeepStr: "15", daysToKeepStr: "30", numToKeepStr: "30"))
         timestamps()
         skipStagesAfterUnstable()
     }
