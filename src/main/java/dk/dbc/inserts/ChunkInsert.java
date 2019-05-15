@@ -64,6 +64,7 @@ public class ChunkInsert {
 
         String sql = arguments.getSql();
         int commit = arguments.getCommit();
+        boolean dryRun = arguments.isDryRun();
         Matcher matcher = SQL_PATTERN.matcher(sql);
         if (!matcher.matches())
             throw arguments.usage("`" + sql + "' is not a valid sql statement for this command");
@@ -76,6 +77,7 @@ public class ChunkInsert {
              Statement stmt = connection.createStatement() ;
              ResultSet resultSet = stmt.executeQuery(select)) {
             connection.setAutoCommit(false);
+            resultSet.setFetchSize(Integer.min(commit, 10000));
             ResultSetMetaData metaData = resultSet.getMetaData();
             int columnCount = metaData.getColumnCount();
             String insertStmt = makeInsert(insert, columnCount);
@@ -85,15 +87,28 @@ public class ChunkInsert {
                 int row = 0;
                 while (resultSet.next()) {
                     mapperList.forEach(m -> m.map(pstmt, resultSet));
-                    pstmt.execute();
+                    pstmt.addBatch();
                     if (++row % commit == 0) {
+                        pstmt.executeBatch();
+                        if (dryRun) {
+                            log.info("Row: {} - rolling back", row);
+                            connection.rollback();
+                        } else {
+                            log.info("Row: {} - committing", row);
+                            connection.commit();
+                        }
+                    }
+
+                }
+                if (row % commit != 0) {
+                    pstmt.executeBatch();
+                    if (dryRun) {
+                        log.info("Row: {} - rolling back", row);
+                        connection.rollback();
+                    } else {
                         log.info("Row: {} - committing", row);
                         connection.commit();
                     }
-                }
-                if (row % commit != 0) {
-                    log.info("Row: {} - committing", row);
-                    connection.commit();
                 }
                 log.info("Done");
             } catch (SQLException ex) {

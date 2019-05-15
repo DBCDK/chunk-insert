@@ -49,6 +49,7 @@ public final class Arguments {
 
     private final Options options;
     private final Option help;
+    private final Option dryRun;
     private final Option verbose;
     private final Option commit;
     private final Option db;
@@ -62,6 +63,10 @@ public final class Arguments {
                 .addOption(this.help = Option.builder("h")
                         .longOpt("help")
                         .desc("this help")
+                        .build())
+                .addOption(this.dryRun = Option.builder("n")
+                        .longOpt("dry-run")
+                        .desc("rollback instead of commit")
                         .build())
                 .addOption(this.verbose = Option.builder("v")
                         .longOpt("verbose")
@@ -101,6 +106,10 @@ public final class Arguments {
 
     public String getSql() {
         return sql;
+    }
+
+    public boolean isDryRun() {
+        return commandLine.hasOption(dryRun.getOpt());
     }
 
     private void addPositionalArguments() {
