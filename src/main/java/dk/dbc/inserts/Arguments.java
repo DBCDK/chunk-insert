@@ -52,6 +52,7 @@ public final class Arguments {
     private final Option dryRun;
     private final Option verbose;
     private final Option commit;
+    private final Option vacuum;
     private final Option db;
     private final Option quiet;
 
@@ -82,6 +83,12 @@ public final class Arguments {
                         .argName("N")
                         .desc("Commit for every N rows")
                         .build())
+                .addOption(this.vacuum = Option.builder()
+                        .longOpt("vacuum")
+                        .hasArg()
+                        .argName("N")
+                        .desc("Vaccuum after N chunks")
+                        .build())
                 .addOption(this.db = Option.builder("d")
                         .longOpt("database")
                         .hasArg()
@@ -93,7 +100,7 @@ public final class Arguments {
     }
 
     private String getOpt(Option option, String defaultValue) {
-        return commandLine.getOptionValue(option.getOpt(), defaultValue);
+        return commandLine.getOptionValue(option.getLongOpt(), defaultValue);
     }
 
     public String getDb() {
@@ -102,6 +109,10 @@ public final class Arguments {
 
     public int getCommit() {
         return Integer.parseUnsignedInt(getOpt(commit, "5000"));
+    }
+
+    public int getVacuum() {
+        return Integer.parseUnsignedInt(getOpt(vacuum, "0"));
     }
 
     public String getSql() {

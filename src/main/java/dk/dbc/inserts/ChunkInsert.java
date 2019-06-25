@@ -46,7 +46,15 @@ public class ChunkInsert {
 
     private static final Pattern POSTGRES_URL_REGEX = Pattern.compile("(?:postgres(?:ql)?://)?(?:([^:@]+)(?::([^@]*))@)?([^:/]+)(?::([1-9][0-9]*))?/(.+)");
 
-    private static final Pattern SQL_PATTERN = Pattern.compile("\\s*(insert\\s+into\\s+[.0-9a-z_]+\\s*(?:\\(\\s*[.0-9a-z_]+(?:\\s*,\\s*[.0-9a-z_]+)*\\s*\\))\\s+)(select\\s+.*)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern SQL_PATTERN = Pattern.compile("\\s*(insert\\s+into\\s+([.0-9a-z_]+)\\s*(?:\\(\\s*[.0-9a-z_]+(?:\\s*,\\s*[.0-9a-z_]+)*\\s*\\))\\s+)(select\\s+.*)", Pattern.CASE_INSENSITIVE);
+
+    private void vacuumAnalyze(DataSource dataSource, String table) throws SQLException {
+        log.info("Vacuuming");
+        try (Connection connection = dataSource.getConnection() ;
+             Statement stmt = connection.createStatement()) {
+            stmt.execute("VACUUM ANALYZE " + table);
+        }
+    }
 
     @FunctionalInterface
     private interface ValueMapper {
@@ -69,7 +77,8 @@ public class ChunkInsert {
         if (!matcher.matches())
             throw arguments.usage("`" + sql + "' is not a valid sql statement for this command");
         String insert = matcher.group(1);
-        String select = matcher.group(2);
+        String table = matcher.group(2);
+        String select = matcher.group(3);
         log.debug("select = {}", select);
 
         DataSource dataSource = makeDataSource(arguments);
@@ -85,6 +94,7 @@ public class ChunkInsert {
             log.debug("insert = {}", insertStmt);
             try (PreparedStatement pstmt = connection.prepareStatement(insertStmt)) {
                 int row = 0;
+                int commitCount = 0;
                 while (resultSet.next()) {
                     mapperList.forEach(m -> m.map(pstmt, resultSet));
                     pstmt.addBatch();
@@ -96,6 +106,8 @@ public class ChunkInsert {
                         } else {
                             log.info("Row: {} - committing", row);
                             connection.commit();
+                            if (++commitCount == arguments.getVacuum())
+                                vacuumAnalyze(dataSource, table);
                         }
                     }
 
@@ -108,6 +120,8 @@ public class ChunkInsert {
                     } else {
                         log.info("Row: {} - committing", row);
                         connection.commit();
+                        if (++commitCount == arguments.getVacuum())
+                            vacuumAnalyze(dataSource, table);
                     }
                 }
                 log.info("Done");
