@@ -22,47 +22,50 @@ pipeline {
     stages {
         stage("build") {
             steps {
-                // Fail Early..
                 script {
-                    if (! env.BRANCH_NAME) {
-                        currentBuild.result = Result.ABORTED
-                        throw new hudson.AbortException('Job Started from non MultiBranch Build')
-                    } else {
-                        println(" Building BRANCH_NAME == ${BRANCH_NAME}")
-                    }
-                }
+                    def status = sh returnStatus: true, script:  """
+                        rm -rf \$WORKSPACE/.repo
+                        mvn -B -Dmaven.repo.local=\$WORKSPACE/.repo dependency:resolve dependency:resolve-plugins >/dev/null 2>&1 || true
+                        mvn -B -Dmaven.repo.local=\$WORKSPACE/.repo clean
+                        mvn -B -Dmaven.repo.local=\$WORKSPACE/.repo --fail-at-end org.jacoco:jacoco-maven-plugin:prepare-agent install -Dsurefire.useFile=false
+                    """
 
-                sh """
-                    rm -rf \$WORKSPACE/.repo/dk/dbc
-                    mvn -B -Dmaven.repo.local=\$WORKSPACE/.repo clean
-                    mvn -B -Dmaven.repo.local=\$WORKSPACE/.repo install javadoc:aggregate -Dsurefire.useFile=false -Dmaven.test.failure.ignore
-                """
-                script {
-                    junit testResults: '**/target/surefire-reports/TEST-*.xml'
+                    // We want code-coverage and pmd/spotbugs even if unittests fails
+                    status += sh returnStatus: true, script:  """
+                        mvn -B -Dmaven.repo.local=\$WORKSPACE/.repo pmd:pmd pmd:cpd spotbugs:spotbugs javadoc:aggregate
+                    """
+
+                    junit testResults: '**/target/*-reports/TEST-*.xml'
 
                     def java = scanForIssues tool: [$class: 'Java']
                     def javadoc = scanForIssues tool: [$class: 'JavaDoc']
+                    publishIssues issues:[java, javadoc], failedTotalAll: 1
 
-                    publishIssues issues:[java,javadoc], unstableTotalAll:1
-                }
-            } 
-        }
+                    def pmd = scanForIssues tool: [$class: 'Pmd', pattern: '**/target/pmd.xml']
+                    publishIssues issues:[pmd], failedTotalAll: 1
 
-        stage("analysis") {
-            steps {
-                sh """
-                    mvn -B -Dmaven.repo.local=\$WORKSPACE/.repo pmd:pmd pmd:cpd findbugs:findbugs
-                """
+                    def cpd = scanForIssues tool: [$class: 'Cpd', pattern: '**/target/cpd.xml']
+                    publishIssues issues:[cpd], failedTotalAll: 1
 
-                script {
-                    def pmd = scanForIssues tool: [$class: 'Pmd'], pattern: '**/target/pmd.xml'
-                    publishIssues issues:[pmd], unstableTotalAll:1
+                    def spotbugs = scanForIssues tool: [$class: 'SpotBugs', pattern: '**/target/spotbugsXml.xml']
+                    publishIssues issues:[spotbugs], failedTotalAll: 1
 
-                    def cpd = scanForIssues tool: [$class: 'Cpd'], pattern: '**/target/cpd.xml'
-                    publishIssues issues:[cpd]
+                    step([$class: 'JacocoPublisher',
+                          execPattern: 'target/*.exec,**/target/*.exec',
+                          classPattern: 'target/classes,**/target/classes',
+                          sourcePattern: 'src/main/java,**/src/main/java',
+                          exclusionPattern: 'src/test*,**/src/test*,**/*?Request.*,**/*?Response.*,**/*?Request$*,**/*?Response$*,**/*?DTO.*,**/*?DTO$*'
+                    ])
 
-                    def findbugs = scanForIssues tool: [$class: 'FindBugs'], pattern: '**/target/findbugsXml.xml'
-                    publishIssues issues:[findbugs], unstableTotalAll:1
+                    warnings consoleParsers: [
+                         [parserName: "Java Compiler (javac)"],
+                         [parserName: "JavaDoc Tool"]],
+                         unstableTotalAll: "0",
+                         failedTotalAll: "0"
+
+                    if ( status != 0 ) {
+                        error("Build failed")
+                    }
                 }
             }
         }
