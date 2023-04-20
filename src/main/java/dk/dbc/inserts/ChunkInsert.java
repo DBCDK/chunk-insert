@@ -50,7 +50,7 @@ public class ChunkInsert {
 
     private void vacuumAnalyze(DataSource dataSource, String table) throws SQLException {
         log.info("Vacuuming");
-        try (Connection connection = dataSource.getConnection() ;
+        try (Connection connection = dataSource.getConnection();
              Statement stmt = connection.createStatement()) {
             stmt.execute("VACUUM ANALYZE " + table);
         }
@@ -82,57 +82,56 @@ public class ChunkInsert {
         log.debug("select = {}", select);
 
         DataSource dataSource = makeDataSource(arguments);
-        try (Connection connection = dataSource.getConnection() ;
-             Statement stmt = connection.createStatement() ;
-             ResultSet resultSet = stmt.executeQuery(select)) {
-            connection.setAutoCommit(false);
-            resultSet.setFetchSize(Integer.min(commit, 10000));
-            ResultSetMetaData metaData = resultSet.getMetaData();
-            int columnCount = metaData.getColumnCount();
-            String insertStmt = makeInsert(insert, columnCount);
-            List<ValueMapper> mapperList = makeMapperList(metaData);
-            log.debug("insert = {}", insertStmt);
-            try (PreparedStatement pstmt = connection.prepareStatement(insertStmt)) {
-                int row = 0;
-                int commitCount = 0;
-                while (resultSet.next()) {
-                    mapperList.forEach(m -> m.map(pstmt, resultSet));
-                    pstmt.addBatch();
-                    if (++row % commit == 0) {
-                        pstmt.executeBatch();
-                        if (dryRun) {
-                            log.info("Row: {} - rolling back", row);
-                            connection.rollback();
-                        } else {
-                            log.info("Row: {} - committing", row);
-                            connection.commit();
-                            if (++commitCount == arguments.getVacuum())
-                                vacuumAnalyze(dataSource, table);
+        int fetchSize = Integer.min(commit, 10000);
+        try (Connection connectionSelect = dataSource.getConnection()) {
+            connectionSelect.setAutoCommit(false);
+            try (Statement stmt = connectionSelect.createStatement()) {
+                stmt.setFetchSize(fetchSize);
+                try (ResultSet resultSet = stmt.executeQuery(select)) {
+                    resultSet.setFetchSize(fetchSize);
+                    ResultSetMetaData metaData = resultSet.getMetaData();
+                    int columnCount = metaData.getColumnCount();
+                    String insertStmt = makeInsert(insert, columnCount);
+                    List<ValueMapper> mapperList = makeMapperList(metaData);
+                    log.debug("insert = {}", insertStmt);
+                    try (Connection connectionInsert = dataSource.getConnection()) {
+                        connectionInsert.setAutoCommit(false);
+                        try (PreparedStatement pstmt = connectionInsert.prepareStatement(insertStmt)) {
+                            int row = 0;
+                            int commitCount = 0;
+                            while (resultSet.next()) {
+                                mapperList.forEach(m -> m.map(pstmt, resultSet));
+                                pstmt.addBatch();
+                                if (++row % commit == 0) {
+                                    pstmt.executeBatch();
+                                    if (dryRun) {
+                                        log.info("Row: {} - rolling back", row);
+                                        connectionInsert.rollback();
+                                    } else {
+                                        log.info("Row: {} - committing", row);
+                                        connectionInsert.commit();
+                                        if (++commitCount == arguments.getVacuum())
+                                            vacuumAnalyze(dataSource, table);
+                                    }
+                                }
+
+                            }
+                            if (row % commit != 0) {
+                                pstmt.executeBatch();
+                                if (dryRun) {
+                                    log.info("Row: {} - rolling back", row);
+                                    connectionInsert.rollback();
+                                } else {
+                                    log.info("Row: {} - committing", row);
+                                    connectionInsert.commit();
+                                    if (++commitCount == arguments.getVacuum())
+                                        vacuumAnalyze(dataSource, table);
+                                }
+                            }
+                            log.info("Done");
                         }
                     }
-
                 }
-                if (row % commit != 0) {
-                    pstmt.executeBatch();
-                    if (dryRun) {
-                        log.info("Row: {} - rolling back", row);
-                        connection.rollback();
-                    } else {
-                        log.info("Row: {} - committing", row);
-                        connection.commit();
-                        if (++commitCount == arguments.getVacuum())
-                            vacuumAnalyze(dataSource, table);
-                    }
-                }
-                log.info("Done");
-            } catch (SQLException ex) {
-                try {
-                    connection.rollback();
-                } catch (SQLException ex2) {
-                    log.error("Error rolling back: {}", ex2.getMessage());
-                    log.debug("Error rolling back: ", ex2);
-                }
-                throw ex;
             }
         }
     }
